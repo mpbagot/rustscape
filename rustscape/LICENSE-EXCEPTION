@@ -1,0 +1,31 @@
+AGPLv3 Network Interaction Exception
+
+As a special exception to the GNU Affero General Public License version 3
+("AGPLv3"), you are not required to comply with the requirements of Section 13
+of the AGPLv3 to provide Corresponding Source to users who interact with a larger
+system that incorporates the Program, provided that all of the following
+conditions are met:
+
+1. The Program is used as a component within a larger application or service,
+   and is not itself intentionally offered or exposed as a standalone or
+   general-purpose network service to third parties; and
+
+2. End users do not intentionally interact with the Program directly, but only
+   with the larger application or service, which may process, transform, or
+   incorporate data obtained from the Program before presenting results to
+   those users; and
+
+3. The Program is not deliberately marketed, documented, or provided as a
+   hosted API or service intended for direct use by third parties.
+
+For the avoidance of doubt, interaction by end users with a system that makes
+use of the Program solely through indirect backend calls, internal APIs, or
+intermediate processing layers shall not be considered interaction with the
+Program for the purposes of Section 13 of the AGPLv3 under this exception.
+
+This exception does not apply if the Program is intentionally deployed or
+offered in a manner that allows third parties to directly access or use the
+Program as a network-accessible service.
+
+This exception grants additional permissions beyond those provided by the
+AGPLv3. All other terms and conditions of the AGPLv3 remain fully applicable.
