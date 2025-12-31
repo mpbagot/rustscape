@@ -142,15 +142,11 @@ impl<'a> PartialEq for FuzzyFilterResult<'a> {
 }
 impl<'a> Eq for FuzzyFilterResult<'a> {}
 impl<'a> PartialOrd for FuzzyFilterResult<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        PartialOrd::partial_cmp(&self.score, &other.score)
-            .or_else(|| PartialOrd::partial_cmp(&other.item, &self.item))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
 }
 impl<'a> Ord for FuzzyFilterResult<'a> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        Ord::cmp(&self.score, &other.score)
-            .then_with(|| Ord::cmp(&other.item, &self.item))
+        self.score.cmp(&other.score).then_with(|| other.item.cmp(self.item))
     }
 }
 
@@ -182,7 +178,7 @@ pub fn precompute_skips_for_items<'a>(items: impl IntoIterator<Item = &'a str>) 
 /// [`None`] if the search string doesn't match word prefixes starting at the given index.
 /// Otherwise, returns the match [`Range`]s as a [`Vec`].
 #[inline]
-fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips: &Vec<usize>) -> Option<Vec<Range>> {
+fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips: &[usize]) -> Option<Vec<Range>> {
     let mut ranges: Vec<Range> = Vec::with_capacity(target_skips.len());
     let mut search_chars = search.bytes();
     let mut search_char = search_chars.next();
@@ -230,7 +226,7 @@ fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips:
         if match_len > 0 {
             let this_range = Range(start_idx, match_len);
             // If the most recent range butts up against this one, simply extend the previous
-            if ranges.len() == 0 {
+            if ranges.is_empty() {
                 ranges.push(this_range);
             } else {
                 let prev_range = ranges.last_mut().unwrap();
@@ -263,9 +259,8 @@ pub fn get_target_skips(target: &str) -> Vec<usize> {
     let mut target_skips = vec![];
     let mut was_alpha_num = false;
     let mut was_upper_case = false;
-    let mut i = 0;
 
-    for char in target.chars() {
+    for (i, char) in target.chars().enumerate() {
         let is_alpha_num = char.is_alphanumeric();
         let is_upper_case = char.is_uppercase();
 
@@ -275,7 +270,6 @@ pub fn get_target_skips(target: &str) -> Vec<usize> {
 
         was_alpha_num = is_alpha_num;
         was_upper_case = is_upper_case;
-        i += 1;
     }
 
     // We push the length as the last skip so when matching
@@ -328,12 +322,12 @@ pub fn highlights_from_ranges<'a>(target: &'a str, ranges: Vec<Range>) -> Highli
 ///
 /// Note that `search` string MUST be lower case.
 pub fn fuzzy_score_item(target: &Target<'_>, search: &str) -> Option<StringScore> {
-    if target.0.len() == 0 {
+    if target.0.is_empty() {
         return None
     }
 
     // empty search string is technically a match of nothing
-    if search.len() == 0 {
+    if search.is_empty() {
         return Some(StringScore { score: 0, ranges: vec![] })
     }
 
@@ -354,10 +348,9 @@ pub fn fuzzy_score_item(target: &Target<'_>, search: &str) -> Option<StringScore
     let match_idx = l_case_target_str.find(search_str);
     let search_len = search_str.len();
 
-    if match_idx.is_some() {
-        let idx = match_idx.unwrap();
+    if let Some(idx) = match_idx {
         let match_range = Range(idx, search_len);
-        let is_word_prefix = idx > 0 && !char::from(target.0.bytes().nth(idx - 1).unwrap()).is_alphanumeric();
+        let is_word_prefix = idx > 0 && !char::from(target.0.as_bytes()[idx - 1]).is_alphanumeric();
         return Some(StringScore {
             score: match_range.get_score(is_word_prefix),
             ranges: vec![match_range]
@@ -382,12 +375,11 @@ pub fn fuzzy_score_item(target: &Target<'_>, search: &str) -> Option<StringScore
     let first_search_char = search_str.bytes().next().unwrap();
     for skip_idx in 0..(target_skips.len() - 1) {
         let tgt_idx = target_skips[skip_idx];
-        let targ_char = l_case_target_str.bytes().nth(tgt_idx).unwrap();
+        let targ_char = l_case_target_str.as_bytes()[tgt_idx];
         if targ_char == first_search_char {
             // possible alignment, perform prefix match
-            let ranges = fuzzy_prefix_match(skip_idx, search, &l_case_target_str, &target_skips);
-            if ranges.is_some() {
-                let ranges = ranges.unwrap();
+            let ranges = fuzzy_prefix_match(skip_idx, search, &l_case_target_str, target_skips);
+            if let Some(ranges) = ranges {
                 let score = ranges.iter().map(|rng| rng.get_score(true)).sum();
                 return Some(StringScore { score, ranges })
             }
@@ -446,7 +438,7 @@ pub fn fuzzy_filter<'a>(items: &Vec<Target<'a>>, search: &str) -> Vec<FuzzyFilte
         .filter(|res| res.highlights.is_some())
         .collect();
 
-    if search.len() > 0 {
+    if !search.is_empty() {
         // Then sort in parallel.
         results.par_sort_by(|a, b| b.cmp(a));
     }
