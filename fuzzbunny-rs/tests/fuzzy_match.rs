@@ -1,7 +1,7 @@
 use fuzzbunny_rs::fuzzy_match;
 
 fn check_highlights(target: &str, search: &str, expected: Vec<&str>) {
-  let highlights = fuzzy_match(Some(target), Some(search)).unwrap().highlights;
+  let highlights = fuzzy_match(target, Some(search)).unwrap().highlights.unwrap();
   assert_eq!(highlights, expected);
 }
 
@@ -18,7 +18,7 @@ fn matches_string_middle() {
 
 #[test]
 fn matches_none() {
-  assert!(fuzzy_match(Some("abcdefg"), Some("zx")).is_none());
+  assert!(fuzzy_match("abcdefg", Some("zx")).is_none());
 }
 
 #[test]
@@ -43,14 +43,14 @@ fn matches_ignores_whitespace() {
 fn matches_search_substring() {
   check_highlights("This is a test", "this is", vec!["", "This is", " a test"]);
 
-  assert!(fuzzy_match(Some("This should not match"), Some("this is")).is_none());
+  assert!(fuzzy_match("This should not match", Some("this is")).is_none());
 }
 
 #[test]
 fn matches_no_filter() {
   check_highlights("abcdefg", "", vec!["abcdefg"]);
 
-  let highlights = fuzzy_match(Some("abcdefg"), None).unwrap().highlights;
+  let highlights = fuzzy_match("abcdefg", None).unwrap().highlights.unwrap();
   assert_eq!(highlights, vec!["abcdefg"]);
 }
 
@@ -61,7 +61,7 @@ fn matches_contiguous() {
 
 #[test]
 fn matches_separated_fails() {
-  assert!(fuzzy_match(Some("abcdefg"), Some("abc xxx")).is_none());
+  assert!(fuzzy_match("abcdefg", Some("abc xxx")).is_none());
 }
 
 #[test]
@@ -69,15 +69,15 @@ fn matches_quotes_substrings() {
   check_highlights("a b c abC def", "abc d", vec!["a b c ", "abC d", "ef"]);
   check_highlights("Las Vegas", "\"la", vec!["", "La", "s Vegas"]);
 
-  assert!(fuzzy_match(Some("a bc def"), Some("\"abc d\"")).is_none());
-  assert!(fuzzy_match(Some("Los Angeles"), Some("\"LA")).is_none());
+  assert!(fuzzy_match("a bc def", Some("\"abc d\"")).is_none());
+  assert!(fuzzy_match("Los Angeles", Some("\"LA")).is_none());
 }
 
 #[test]
 fn matches_normal_with_quotes_in_middle() {
   check_highlights("abc \"def\"", "a\"def\"", vec!["", "a", "bc ", "\"def\""]);
 
-  assert!(fuzzy_match(Some("Las Vegas"), Some("la\"")).is_none());
+  assert!(fuzzy_match("Las Vegas", Some("la\"")).is_none());
 }
 
 #[test]

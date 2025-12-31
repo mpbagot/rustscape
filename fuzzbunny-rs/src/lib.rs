@@ -44,12 +44,6 @@ impl Range {
 }
 
 /// TODO
-pub struct StringMatch<'a> {
-    pub score: u32,
-    pub highlights: Highlights<'a>
-}
-
-/// TODO
 #[derive(Debug)]
 pub struct FuzzyFilterResult<'a> {
     pub item: &'a str,
@@ -335,16 +329,16 @@ pub fn fuzzy_score_item(target: &Target<'_>, search: &str) -> Option<StringScore
 }
 
 /// Fuzzy match and return the score, highlights, and lowercased matchStr (for sort)
-pub fn fuzzy_match<'t, 's>(target: Option<&'t str>, search: Option<&'s str>) -> Option<StringMatch<'t>> {
-    let target = target.unwrap_or("");
+pub fn fuzzy_match<'t>(target: &'t str, search: Option<&str>) -> Option<FuzzyFilterResult<'t>> {
     let search: &str = &search.unwrap_or("").trim().to_lowercase();
 
     let string_match = fuzzy_score_item(&(target, None), search);
 
     string_match.map(|mat| {
-        StringMatch {
+        FuzzyFilterResult {
+            item: target,
             score: mat.score,
-            highlights: highlights_from_ranges(target, mat.ranges),
+            highlights: Some(highlights_from_ranges(target, mat.ranges)),
         }
     })
 }
