@@ -39,7 +39,23 @@ impl Range {
     /// TODO
     #[inline]
     const fn get_score(&self, is_prefix: bool) -> u32 {
-        get_match_score(self.0, self.1, is_prefix)
+        let mut score: u32 = 0;
+
+        // increase score exponentially per letter matched so that contiguous matches are ranked higher
+        // i.e '[abc]' ranks higher than '[ab]ott [c]hemicals'
+        score += SCORE_CONTIGUOUS * ((self.1 * self.1) as u32); // u16 * u16 can at most be u32
+
+        score += if self.0 == 0 {
+            // matching at the start of string gets a ranking bonus
+            SCORE_START_STR
+        } else if is_prefix {
+            // closer to the start, the higher it ranks
+            SCORE_PREFIX - self.0 as u32 // We assume the input string won't be more than u32::MAX in length
+        } else {
+            0
+        };
+
+        score
     }
 }
 
@@ -78,33 +94,7 @@ pub fn precompute_skips_for_items<'a>(items: impl IntoIterator<Item = &'a str>) 
         .collect()
 }
 
-/// TODO
-//  * @param {number} idx - index of the match
-//  * @param {number} len - length of the match
-//  * @param {boolean} isPrefix - was it a prefix of a word
-//  * @returns {number} - score of the match, higher is better
-#[inline]
-const fn get_match_score(idx: usize, len: usize, is_prefix: bool) -> u32 {
-    let mut score: u32 = 0;
-
-    // increase score exponentially per letter matched so that contiguous matches are ranked higher
-    // i.e '[abc]' ranks higher than '[ab]ott [c]hemicals'
-    score += SCORE_CONTIGUOUS * ((len * len) as u32); // u16 * u16 can at most be u32
-
-    score += if idx == 0 {
-        // matching at the start of string gets a ranking bonus
-        SCORE_START_STR
-    } else if is_prefix {
-        // closer to the start, the higher it ranks
-        SCORE_PREFIX - idx as u32 // We assume the input string won't be more than u32::MAX in length
-    } else {
-        0
-    };
-
-    score
-}
-
-/// TODO
+/// Perform a prefix match for a search string on the target string.
 ///
 // /**
 //  * performs a prefix match e.g 'usam' matches '[u]nited [s]tates of [am]erica
