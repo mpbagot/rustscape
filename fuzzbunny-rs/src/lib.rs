@@ -1,4 +1,35 @@
-//! TODO Crate level docs here
+//! A Rust reimplementation of the original [fuzzbunny](https://github.com/mixpanel/fuzzbunny/) JS library.
+//!
+//! This implementation provides a similar API as the original, with various tweaks to better suit
+//! the specific requirements of the parent Rustscape project.
+//!
+//! ## Features
+//!
+//! - **Fuzzy matching**: Perform efficient fuzzy string matching based on string prefixes
+//! - **Parallel processing**: Leverages `rayon` for parallelized filtering and sorting
+//! - **Highlighting**: Automatically generates highlighted substrings for matched ranges
+//! - **Performance optimizations**: Uses precomputed skip indices for efficient prefix matching
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use fuzzbunny_rs::{fuzzy_filter, precompute_skips_for_items};
+//!
+//! let items = vec!["apple", "application", "banana"];
+//! let targets = precompute_skips_for_items(items);
+//! let results = fuzzy_filter(&targets, "app");
+//!
+//! assert_eq!(*results[0].highlights.as_ref().unwrap(), vec!["", "app", "le"]);
+//! assert_eq!(*results[1].highlights.as_ref().unwrap(), vec!["", "app", "lication"]);
+//! assert_eq!(results.len(), 2);
+//! ```
+//!
+//! ## Scoring
+//!
+//! The scoring algorithm rewards:
+//! - Matches at the beginning of strings
+//! - Contiguous matches (longer matches score higher)
+//! - Matches closer to the start of the string
 
 use rayon::prelude::*;
 
@@ -6,37 +37,71 @@ const SCORE_START_STR: u32 = 1000;
 const SCORE_PREFIX: u32 = 200;
 const SCORE_CONTIGUOUS: u32 = 300;
 
-/// TODO
+/// Highlighted substrings of a full string.
+///
+/// Every second string in the [`Vec`] represents a substring that matches
+/// with the search string.
+///
+/// # Examples
+///
+/// 'usam' matches the string: 'the \[u\]nited \[s\]tates of \[am\]erica'.
+/// The highlights for such a match would be:
+/// ```
+/// ["the ", "u", "nited ", "s", "tates of ", "am", "erica"];
+/// ```
+/// Which could be rendered as:
+///
+/// 'the **u**nited **s**tates of **am**erica'
 pub type Highlights<'a> = Vec<&'a str>;
 
-/// TODO
+/// A target string to fuzzy search within.
+///
+/// Optionally includes a skip index vector. If included, these skip indices
+/// are used during processing to reduce repeated calculation.
 pub type Target<'a> = (&'a str, Option<Vec<usize>>);
 
-/// TODO
+/// Match score and ranges on a string.
+///
+/// The `score` represents the match score for the string, while `ranges` holds
+/// [`Range`] items for each substring that matches between a search and target string.
 pub struct StringScore {
+    /// The match score for a search string against a target string.
     pub score: u32,
-    pub ranges: Vec<Range>
+    /// The ranges in the target string that matches with the search string.
+    pub ranges: Vec<Range>,
 }
 
-/// TODO A range inside a string
+/// A matched substring range in a larger string.
 #[derive(Debug)]
-pub struct Range(usize, usize);
+pub struct Range(
+    /// The start index of the match range.
+    pub usize,
+    /// The length of the match range.
+    pub usize,
+);
 
 impl Range {
-    /// TODO
+    /// Calculate the byte index of the final character of the range.
     #[inline]
     const fn end_index(&self) -> usize {
         self.0 + self.1
     }
 
-    /// TODO
+    /// Merge another [`Range`] into this one by concatenation.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if this range doesn't directly precede the one to be merged.
     #[inline]
     fn merge(&mut self, other: Range) {
         assert_eq!(self.end_index(), other.0);
         self.1 += other.1;
     }
 
-    /// TODO
+    /// Calculate a match score for this range.
+    ///
+    /// Score increases exponentially for contiguous matches, and are generally higher
+    /// for matches closer to the beginning of the string.
     #[inline]
     const fn get_score(&self, is_prefix: bool) -> u32 {
         let mut score: u32 = 0;
@@ -59,12 +124,15 @@ impl Range {
     }
 }
 
-/// TODO
+/// Filter result for a target string including match score and highlights.
 #[derive(Debug)]
 pub struct FuzzyFilterResult<'a> {
+    /// The target string that the search string was matched against.
     pub item: &'a str,
+    /// The match score for a search string against a target string.
     pub score: u32,
-    pub highlights: Option<Highlights<'a>>
+    /// The highlight substrings of the target string. See [`Highlights`]. [`None`] if there is no match.
+    pub highlights: Option<Highlights<'a>>,
 }
 
 impl<'a> PartialEq for FuzzyFilterResult<'a> {
@@ -86,7 +154,15 @@ impl<'a> Ord for FuzzyFilterResult<'a> {
     }
 }
 
-/// TODO
+/// Convert an interator of string items to a [`Target`] vector.
+///
+/// This is a convenience function to quickly convert a set of plain strings
+/// into [`Target`] items for use with [`fuzzy_filter`]. If you don't want the skips
+/// computed, you can manually wrap string items as `(item, None)` instead.
+///
+/// # Returns
+///
+/// The string items wrapped as [`Target`] items including the precomputed skip indices.
 pub fn precompute_skips_for_items<'a>(items: impl IntoIterator<Item = &'a str>) -> Vec<Target<'a>> {
     items
         .into_iter()
@@ -96,16 +172,15 @@ pub fn precompute_skips_for_items<'a>(items: impl IntoIterator<Item = &'a str>) 
 
 /// Perform a prefix match for a search string on the target string.
 ///
-// /**
-//  * performs a prefix match e.g 'usam' matches '[u]nited [s]tates of [am]erica
-//  * @param {number} skipIdx - skip index where to start search from
-//  * @param {string} searchStr - lowercased search string
-//  * @param {string} targetStr - lowercased target string
-//  * @param {number[]} targetSkips - skip boundary indices
-//  * @returns {number[] | null}
-//  *  - the [idx, len, ...] ranges where the match occured
-//  *  - null if no match found
-//  */
+/// This function starts from the given skip, and checks against all skip indices from then on.
+/// For example:
+/// 'usam' matches '[u]nited [s]tates of [am]erica', with skip index 0.
+/// 'usam' matches 'the [u]nited [s]tates of [am]erica', with skip index 1, but not 0.
+///
+/// # Returns
+///
+/// [`None`] if the search string doesn't match word prefixes starting at the given index.
+/// Otherwise, returns the match [`Range`]s as a [`Vec`].
 #[inline]
 fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips: &Vec<usize>) -> Option<Vec<Range>> {
     let mut ranges: Vec<Range> = Vec::with_capacity(target_skips.len());
@@ -178,14 +253,11 @@ fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips:
     None
 }
 
-/// TODO
+/// Compute skip indices for a target string.
 ///
-/// /**
-//  * A skip index marks word and punctuation boundaries
-//  * We use this to skip around the targetStr and quickly find prefix matches
-//  * @param {string} targetStr
-//  * @returns {number[]}
-//  */
+/// Skip indices mark word and punctuation boundaries, including camel/PascalCase
+/// case changes. These are used to quickly find prefix matches in the target string
+/// without traversing the entire string each time.
 #[inline]
 pub fn get_target_skips(target: &str) -> Vec<usize> {
     let mut target_skips = vec![];
@@ -215,9 +287,19 @@ pub fn get_target_skips(target: &str) -> Vec<usize> {
     target_skips
 }
 
-/// Returns the string parts for highlighting from the matched ranges
+/// Calculate the highlighted substrings of a target string for the given match ranges.
 ///
-/// TODO Example ('my example', [3, 2]) would return ['my ', 'ex', 'ample']
+/// This function converts the `ranges` of a [`StringScore`] into the equivalent [`Highlights`]
+/// that you would find in a [`FuzzyFilterResult`].
+///
+/// # Examples
+///
+/// ```rust
+/// use fuzzbunny_rs::{highlights_from_ranges, Range};
+///
+/// let hls = highlights_from_ranges("my example", vec![Range(3, 2)]);
+/// assert_eq!(hls, vec!["my ", "ex", "ample"]);
+/// ```
 #[inline]
 pub fn highlights_from_ranges<'a>(target: &'a str, ranges: Vec<Range>) -> Highlights<'a> {
     let mut last_index = 0;
@@ -238,16 +320,13 @@ pub fn highlights_from_ranges<'a>(target: &'a str, ranges: Vec<Range>) -> Highli
     highlights
 }
 
-/// TODO
+/// Compute a raw score and highlight ranges for a target and search string.
 ///
-/// /**
-//  * fuzzyScoreItem is called by fuzzyMatch, it's a slightly lower level call
-//  * If perf is of importance and you want to avoid lowercase + trim + highlighting on every item
-//  * Use this and only call highlightsFromRanges for only the items that are displayed
-//  * @param {string} targetStr - lowercased trimmed target string to search on
-//  * @param {string} searchStr - lowercased trimmed search string
-//  * @returns {{score: number, ranges: number[]} | null} - null if no match
-//  */
+/// This is a slightly lower level call. If performance is of importance and you want to avoid
+/// trim + highlighting on every item, use this and only call [`highlights_from_ranges`]
+/// for only the items that need the highlights.
+///
+/// Note that `search` string MUST be lower case.
 pub fn fuzzy_score_item(target: &Target<'_>, search: &str) -> Option<StringScore> {
     if target.0.len() == 0 {
         return None
@@ -318,7 +397,12 @@ pub fn fuzzy_score_item(target: &Target<'_>, search: &str) -> Option<StringScore
     None
 }
 
-/// Fuzzy match and return the score, highlights, and lowercased matchStr (for sort)
+/// Fuzzy match a target string with a search string.
+///
+/// # Returns
+///
+/// A [`FuzzyFilterResult`] holding the target string, score and highlighted substring sections
+/// if the search string fuzzily matches inside the target. [`None`] otherwise
 pub fn fuzzy_match<'t>(target: &'t str, search: Option<&str>) -> Option<FuzzyFilterResult<'t>> {
     let search: &str = &search.unwrap_or("").trim().to_lowercase();
 
@@ -333,15 +417,13 @@ pub fn fuzzy_match<'t>(target: &'t str, search: Option<&str>) -> Option<FuzzyFil
     })
 }
 
-/// TODO
-// /**
-//  * Searches an array of items on props and returns filtered + sorted array with scores and highlights
-//  * @template Item
-//  * @param {Item[]} items
-//  * @param {string} searchStr
-//  * @param {{fields: (keyof Item)[]}} options
-//  * @returns {FuzzyFilterResult<Item>[]}
-//  */
+/// Search a vector of [`Target`]s and return a filtered and sorted vector
+/// of [`FuzzyFilterResult`].
+///
+/// Each provided target is scored against the `search` string. Only non-zero scores are returned.
+///
+/// This version makes use of rayon to parallelise the scoring (an embarrassingly parallel problem)
+/// and sorting the scored results.
 pub fn fuzzy_filter<'a>(items: &Vec<Target<'a>>, search: &str) -> Vec<FuzzyFilterResult<'a>> {
     let search_lower_cased = search.trim().to_lowercase();
 
