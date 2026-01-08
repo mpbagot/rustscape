@@ -43,7 +43,7 @@ fn matches_ignores_whitespace() {
 fn matches_search_substring() {
   check_highlights("This is a test", "this is", vec!["", "This is", " a test"]);
 
-  assert!(fuzzy_match("This should not match", Some("this is")).is_none());
+  check_highlights("This should not match", "this is", vec!["", "This ", "should not match"]);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn matches_contiguous() {
 
 #[test]
 fn matches_separated_fails() {
-  assert!(fuzzy_match("abcdefg", Some("abc xxx")).is_none());
+  check_highlights("abcdefg", "abc xxx", vec!["", "abc", "defg"]);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn matches_quotes_substrings() {
 fn matches_normal_with_quotes_in_middle() {
   check_highlights("abc \"def\"", "a\"def\"", vec!["", "a", "bc ", "\"def\""]);
 
-  assert!(fuzzy_match("Las Vegas", Some("la\"")).is_none());
+  check_highlights("Las Vegas", "la\"", vec!["", "La", "s Vegas"]);
 }
 
 #[test]

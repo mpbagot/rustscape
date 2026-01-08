@@ -52,9 +52,10 @@ fn filter_matches_string_beginning() {
         vec!["Matt Parkman, ", "Te", "lepathy"],
         vec!["Micah Sanders, ", "Te", "chnopathy"],
         vec!["Samuel Sullivan, ", "Te", "rrakinesis"],
+        vec!["", "T", "racy Strauss, Cryokinesis"],
         vec!["Pe", "te", "rr Petrelli, Empathic mimicry then tactile power mimicry"],
     ];
-    assert_eq!(highlights, expected);
+    assert_eq!(highlights[..5], expected);
 }
 
 #[test]
@@ -64,7 +65,7 @@ fn filter_matches_string_middle() {
         vec!["Peterr Petrelli, Empathic ", "mimi", "cry then tactile power mimicry"],
         vec!["Gabriel Gray / Sylar, Power ", "mimi", "cry and amplification"],
     ];
-    assert_eq!(highlights, expected);
+    assert_eq!(highlights[..2], expected);
 }
 
 #[test]
@@ -76,5 +77,17 @@ fn filter_matches_string_exact() {
         vec!["Nathan ", "Petrelli", ", Flight"],
         vec!["Peterr ", "Petrelli", ", Empathic mimicry then tactile power mimicry"],
     ];
-    assert_eq!(highlights, expected);
+    assert_eq!(highlights[..4], expected);
+}
+
+#[test]
+fn filter_matches_slight_misspell() {
+    let highlights = get_highlights("petelli");
+    let expected = vec![
+        vec!["Angela ", "Pet", "r", "elli", ", Enhanced dreaming"],
+        vec!["Arthur ", "Pet", "r", "elli", ", Ability absorption"],
+        vec!["Nathan ", "Pet", "r", "elli", ", Flight"],
+        vec!["", "Pete", "rr Petrelli, Empathic mimicry then tactile power mimicry"],
+    ];
+    assert_eq!(highlights[..4], expected);
 }

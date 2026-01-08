@@ -93,7 +93,7 @@ impl Range {
     ///
     /// This function panics if this range doesn't directly precede the one to be merged.
     #[inline]
-    fn merge(&mut self, other: Range) {
+    fn merge(&mut self, other: &Range) {
         assert_eq!(self.end_index(), other.0);
         self.1 += other.1;
     }
@@ -180,16 +180,17 @@ pub fn precompute_skips_for_items<'a>(items: impl IntoIterator<Item = &'a str>) 
 #[inline]
 fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips: &[usize]) -> Option<Vec<Range>> {
     let mut ranges: Vec<Range> = Vec::with_capacity(target_skips.len());
-    let mut search_chars = search.bytes();
+    let mut search_chars = search.bytes().peekable();
     let mut search_char = search_chars.next();
 
+    let mut error_distance = 2;
     for i in skip_idx..target_skips.len() - 1 {
-        let start_idx = target_skips[i];
+        let mut start_idx = target_skips[i];
         let mut target_cnt = target_skips[i + 1] - start_idx;
-        let mut match_len = 0;
+        let mut match_len: usize = 0;
 
         // Set up character iterators
-        let mut target_chars = target.bytes();
+        let mut target_chars = target.bytes().peekable();
 
         // Initialise the characters to the start of the ranges
         let mut target_char = target_chars.nth(start_idx);
@@ -218,35 +219,76 @@ fn fuzzy_prefix_match(skip_idx: usize, search: &str, target: &str, target_skips:
                 continue;
             }
 
+            if match_len > 0 && error_distance > 0 && !char::from(s_char).is_ascii_digit() {
+                if s_char == *target_chars.peek().unwrap_or(&0) {
+                    error_distance -= 1;
+
+                    // Cut the current range, then start a new one at the matching target char
+                    let this_range = Range(start_idx, match_len);
+                    start_idx = this_range.end_index() + 1;
+                    match_len = 0;
+                    ranges.push(this_range);
+
+                    target_char = target_chars.next();
+                    continue;
+                }
+                if t_char == *search_chars.peek().unwrap_or(&0) {
+                    error_distance -= 1;
+                    match_len = match_len.saturating_sub(1);
+                    search_char = search_chars.next();
+                    continue;
+                }
+            }
+
             break;
         }
 
-        // Make contiguous ranges if possible
-        // TODO This looks terrible
+        // Push the range we just found
         if match_len > 0 {
-            let this_range = Range(start_idx, match_len);
-            // If the most recent range butts up against this one, simply extend the previous
-            if ranges.is_empty() {
-                ranges.push(this_range);
-            } else {
-                let prev_range = ranges.last_mut().unwrap();
-                if prev_range.end_index() == start_idx {
-                    // Update previous range
-                    prev_range.merge(this_range)
-                } else {
-                    // Add restore the previous range and add the new this_range
-                    ranges.push(this_range);
-                };
-            }
+            ranges.push(Range(start_idx, match_len));
+        }
+
+        // If the error distance goes to 0 and we haven't fully matched, this is an invalid match. Return None
+        if error_distance == 0 && search_char.is_some() {
+            return None
         }
 
         if search_char.is_none() {
-            // Search is fully matched, return ranges
-            return Some(ranges)
+            // Search is fully matched, break out to the merge
+            break
         }
     }
 
-    None
+    if !ranges.is_empty() {
+        // Make contiguous ranges if possible
+        let mut merged_ranges = Vec::<Range>::with_capacity(ranges.len());
+        let mut range_iter = ranges.into_iter().peekable();
+
+        let mut test_range = range_iter.next();
+        while let Some(mut work_range) = test_range {
+            // Peek at the next ranges and merge them with the work_range until they're either all gone,
+            // Or no longer contiguous.
+            loop {
+                let next_range = range_iter.peek();
+                if let Some(next) = next_range {
+                    if work_range.end_index() == next.0 {
+                        work_range.merge(next);
+                        range_iter.next();
+                        continue;
+                    }
+                }
+                break;
+            };
+            // Now that work_range is done, push it to the vec
+            merged_ranges.push(work_range);
+            // And set test_range to next_range
+            test_range = range_iter.next();
+        }
+
+        Some(merged_ranges)
+    } else {
+        None
+    }
 }
 
 /// Compute skip indices for a target string.
