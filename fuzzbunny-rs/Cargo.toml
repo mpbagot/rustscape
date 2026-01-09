@@ -4,5 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
+[features]
+default = []
+std = []
+rayon = ["std", "dep:rayon"]
+
 [dependencies]
-rayon = "^1.11"
+rayon = { version = "^1.11", optional = true }

@@ -3,10 +3,13 @@
 //! This implementation provides a similar API as the original, with various tweaks to better suit
 //! the specific requirements of the parent Rustscape project.
 //!
+//! By default, this crate is single-threaded and `no_std`. You can optionally enable the `rayon` feature
+//! to take advantage of parallelism when filtering with [`fuzzy_filter`].
+//!
 //! ## Features
 //!
 //! - **Fuzzy matching**: Perform efficient fuzzy string matching based on string prefixes
-//! - **Parallel processing**: Leverages `rayon` for parallelized filtering and sorting
+//! - **Parallel processing**: Leverages `rayon` for parallelized filtering and sorting (with `rayon` feature)
 //! - **Highlighting**: Automatically generates highlighted substrings for matched ranges
 //! - **Performance optimizations**: Uses precomputed skip indices for efficient prefix matching
 //!
@@ -31,6 +34,17 @@
 //! - Contiguous matches (longer matches score higher)
 //! - Matches closer to the start of the string
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
+extern crate std;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 const SCORE_START_STR: u32 = 1000;
@@ -142,10 +156,10 @@ impl<'a> PartialEq for FuzzyFilterResult<'a> {
 }
 impl<'a> Eq for FuzzyFilterResult<'a> {}
 impl<'a> PartialOrd for FuzzyFilterResult<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> { Some(self.cmp(other)) }
 }
 impl<'a> Ord for FuzzyFilterResult<'a> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.score.cmp(&other.score).then_with(|| other.item.cmp(self.item))
     }
 }
@@ -461,28 +475,41 @@ pub fn fuzzy_match<'t>(target: &'t str, search: Option<&str>) -> Option<FuzzyFil
 pub fn fuzzy_filter<'a>(items: &Vec<Target<'a>>, search: &str) -> Vec<FuzzyFilterResult<'a>> {
     let search_lower_cased = search.trim().to_lowercase();
 
-    // In parallel, process the results
+    // Process the results by scoring and filtering
+    let process_target = |target| {
+        let match_item = fuzzy_score_item(target, &search_lower_cased);
+        match_item.map_or(
+            FuzzyFilterResult { item: target.0, score: 0, highlights: None },
+            |match_item| {
+                FuzzyFilterResult {
+                    item: target.0,
+                    score: match_item.score,
+                    highlights: Some(highlights_from_ranges(target.0, match_item.ranges)),
+                }
+            }
+        )
+    };
+
+    #[cfg(feature = "rayon")]
     let mut results: Vec<FuzzyFilterResult<'a>> = items
         .into_par_iter()
-        .map(|target| {
-            let match_item = fuzzy_score_item(target, &search_lower_cased);
-            match_item.map_or(
-                FuzzyFilterResult { item: target.0, score: 0, highlights: None },
-                |match_item| {
-                    FuzzyFilterResult {
-                        item: target.0,
-                        score: match_item.score,
-                        highlights: Some(highlights_from_ranges(target.0, match_item.ranges)),
-                    }
-                }
-            )
-        })
+        .map(process_target)
+        .filter(|res| res.highlights.is_some())
+        .collect();
+
+    #[cfg(not(feature = "rayon"))]
+    let mut results: Vec<FuzzyFilterResult<'a>> = items
+        .into_iter()
+        .map(process_target)
         .filter(|res| res.highlights.is_some())
         .collect();
 
     if !search.is_empty() {
-        // Then sort in parallel.
+        // Then sort the results.
+        #[cfg(feature = "rayon")]
         results.par_sort_by(|a, b| b.cmp(a));
+        #[cfg(not(feature = "rayon"))]
+        results.sort_by(|a, b| b.cmp(a));
     }
 
     results
