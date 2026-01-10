@@ -3,6 +3,8 @@ name = "fuzzbunny-rs"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "A Rust reimplementation of the fuzzbunny JS library."
+repository = "https://github.com/mpbagot/rustscape/"
 
 [features]
 default = []
